@@ -45,8 +45,16 @@ CREATE TABLE IF NOT EXISTS olaylar (
 );
 CREATE INDEX IF NOT EXISTS olaylar_kurulum ON olaylar(kurulum, seq);
 CREATE INDEX IF NOT EXISTS olaylar_zaman ON olaylar(zaman);
+CREATE TABLE IF NOT EXISTS oturumlar (token_hash TEXT PRIMARY KEY, son INTEGER NOT NULL);
 """
-PANEL_HTML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "panel.html")
+HERE = os.path.dirname(os.path.abspath(__file__))
+PANEL_HTML = os.path.join(HERE, "panel.html")
+GIRIS_HTML = os.path.join(HERE, "giris.html")
+# Panel şifresinin PBKDF2 özeti (ezgi-panel-sifre yazar). Oturum çerezi 30 gün, yalnız /ezgi/panel/ yolunda.
+SIFRE_DOSYASI = os.environ.get("EZGI_PANEL_SIFRE", "/etc/ezgi/panel-sifre")
+COOKIE = "ezgi_oturum"
+OTURUM_MS = 30 * 86400_000
+_login = []  # son giriş denemeleri (zaman); bellekte, IP'siz
 GH = "https://api.github.com/repos/osmanevski/Ezgi/releases"
 _gh_cache = {"t": 0, "v": None}
 
@@ -89,14 +97,62 @@ class H(BaseHTTPRequestHandler):
     def log_message(self, *a):  # IP günlüğe yazılmasın
         pass
 
-    def send(self, code, obj):
+    def send(self, code, obj, cookie=None):
         body = json.dumps(obj, ensure_ascii=False).encode()
         self.send_response(code)
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
+
+    def cookie(self):
+        for part in self.headers.get("Cookie", "").split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == COOKIE and 20 < len(v) < 200:
+                return v
+        return None
+
+    def session(self):
+        tok = self.cookie()
+        if not tok:
+            return False
+        h = hashlib.sha256(tok.encode()).hexdigest()
+        c = db(); now = int(time.time() * 1000)
+        row = c.execute("SELECT son FROM oturumlar WHERE token_hash=?", (h,)).fetchone()
+        if not row or now - row[0] > OTURUM_MS:
+            return False
+        if now - row[0] > 3600_000:  # kullanıldıkça uzasın
+            c.execute("UPDATE oturumlar SET son=? WHERE token_hash=?", (now, h)); c.commit()
+        return True
+
+    def login(self):
+        now = time.time()
+        with _rate_lock:
+            _login[:] = [t for t in _login if now - t < 60]
+            _login.append(now)
+            too_many = len(_login) > 10
+        if too_many:
+            return self.send(429, {"hata": "Çok fazla deneme, bir dakika bekle"})
+        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            sifre = json.loads(self.rfile.read(min(n, 4096)))["sifre"]
+            assert isinstance(sifre, str) and 0 < len(sifre) <= 200
+        except Exception:
+            return self.send(400, {"hata": "biçim"})
+        if not check_password(sifre):
+            time.sleep(1)
+            return self.send(401, {"hata": "Şifre yanlış"})
+        import secrets
+        tok = secrets.token_urlsafe(32)
+        c = db(); now_ms = int(now * 1000)
+        c.execute("DELETE FROM oturumlar WHERE son < ?", (now_ms - OTURUM_MS,))
+        c.execute("INSERT INTO oturumlar(token_hash, son) VALUES(?,?)", (hashlib.sha256(tok.encode()).hexdigest(), now_ms))
+        c.commit()
+        return self.send(200, {"tamam": True},
+                         cookie=f"{COOKIE}={tok}; Path=/ezgi/panel/; Max-Age={OTURUM_MS // 1000}; HttpOnly; Secure; SameSite=Strict")
 
     def send_file(self, path, ctype):
         try:
@@ -135,8 +191,10 @@ class H(BaseHTTPRequestHandler):
             self.send_response(308); self.send_header("Location", "panel/"); self.send_header("Content-Length", "0"); self.end_headers()
             return
         if u.path == "/panel/":
-            return self.send_file(PANEL_HTML, "text/html; charset=utf-8")
+            return self.send_file(PANEL_HTML if self.session() else GIRIS_HTML, "text/html; charset=utf-8")
         if u.path == "/panel/veri.json":
+            if not self.session():
+                return self.send(401, {"hata": "giriş"})
             return self.send(200, panel_data(parse_qs(u.query).get("kurulum", [None])[0]))
         if u.path == "/v1/saglik":
             return self.send(200, {"durum": "iyi"})
@@ -158,7 +216,17 @@ class H(BaseHTTPRequestHandler):
         self.send(404, {"hata": "yok"})
 
     def do_POST(self):
-        if urlparse(self.path).path == "/panel/ad":
+        path = urlparse(self.path).path
+        if path == "/panel/giris":
+            return self.login()
+        if path == "/panel/cikis":
+            tok = self.cookie()
+            if tok:
+                c = db(); c.execute("DELETE FROM oturumlar WHERE token_hash=?", (hashlib.sha256(tok.encode()).hexdigest(),)); c.commit()
+            return self.send(200, {"tamam": True}, cookie=f"{COOKIE}=; Path=/ezgi/panel/; Max-Age=0; HttpOnly; Secure; SameSite=Strict")
+        if path.startswith("/panel/") and not self.session():
+            return self.send(401, {"hata": "giriş"})
+        if path == "/panel/ad":
             n = int(self.headers.get("Content-Length") or 0)
             try:
                 d = json.loads(self.rfile.read(min(n, 4096)))
@@ -201,6 +269,17 @@ class H(BaseHTTPRequestHandler):
         c.execute("UPDATE kurulumlar SET son=?, surum=? WHERE id=?", (now, s(data.get("surum"), 20), kur))
         c.commit()
         self.send(200, {"alinan": c.total_changes - before - 1, "gecerli": len(rows)})
+
+
+def check_password(sifre):
+    """Dosya biçimi: pbkdf2_sha256$<tur>$<tuz hex>$<özet hex>. Dosya yoksa giriş kapalı."""
+    try:
+        algo, tur, tuz, ozet = open(SIFRE_DOSYASI).read().strip().split("$")
+        assert algo == "pbkdf2_sha256"
+    except Exception:
+        return False
+    h = hashlib.pbkdf2_hmac("sha256", sifre.encode(), bytes.fromhex(tuz), int(tur)).hex()
+    return hmac.compare_digest(h, ozet)
 
 
 def github_downloads():

@@ -1,24 +1,21 @@
 #!/usr/bin/env bash
-# Ezgi paneli (osmanevski.com/ezgi/panel/) şifresini koyar ya da değiştirir. Kullanıcı adı: osman.
-# Şifre ekrana ve süreç listesine düşmez; Caddy'ye yalnız bcrypt özeti yazılır.
+# Ezgi paneli (osmanevski.com/ezgi/panel/) şifresini koyar ya da değiştirir.
+# Şifre ekrana ve süreç listesine düşmez; /etc/ezgi/panel-sifre'ye yalnız PBKDF2 özeti yazılır.
+# Değişince açık oturumlar kapanır.
 set -euo pipefail
-SNIP=/etc/caddy/ezgi-panel.caddy
 read -rsp "Ezgi paneli şifresi: " p1; echo
 read -rsp "Tekrar: " p2; echo
 [ "$p1" = "$p2" ] || { echo "Şifreler eşleşmedi." >&2; exit 1; }
 [ "${#p1}" -ge 10 ] || { echo "En az 10 karakter olsun." >&2; exit 1; }
-h=$(printf '%s\n' "$p1" | caddy hash-password)
+install -d -o root -g ezgi -m 750 /etc/ezgi
+printf '%s' "$p1" | python3 -c '
+import hashlib, os, sys
+p = sys.stdin.read().encode(); salt = os.urandom(16); n = 600000
+print("pbkdf2_sha256$%d$%s$%s" % (n, salt.hex(), hashlib.pbkdf2_hmac("sha256", p, salt, n).hex()))
+' > /etc/ezgi/panel-sifre.yeni
 unset p1 p2
-cp "$SNIP" "$SNIP.onceki"
-cat > "$SNIP" <<SNIPEOF
-# ezgi-panel-sifre tarafından yazıldı ($(date -Iseconds)). Kullanıcı: osman
-@panel path /panel /panel/*
-basic_auth @panel {
-	osman $h
-}
-SNIPEOF
-if caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
-  systemctl reload caddy && echo "Tamam: https://osmanevski.com/ezgi/panel/ (kullanıcı adı: osman)"
-else
-  mv "$SNIP.onceki" "$SNIP"; echo "Caddy yapılandırması geçersiz çıktı; eski hâle döndürüldü." >&2; exit 1
-fi
+chown root:ezgi /etc/ezgi/panel-sifre.yeni && chmod 640 /etc/ezgi/panel-sifre.yeni
+mv /etc/ezgi/panel-sifre.yeni /etc/ezgi/panel-sifre
+python3 -c 'import sqlite3; c=sqlite3.connect("/var/lib/ezgi/ezgi.db"); c.execute("DELETE FROM oturumlar"); c.commit()' 2>/dev/null || true
+chown -R ezgi:ezgi /var/lib/ezgi
+echo "Tamam: https://osmanevski.com/ezgi/panel/"

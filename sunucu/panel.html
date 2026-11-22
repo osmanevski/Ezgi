@@ -51,6 +51,7 @@
     <div class="logo"><i></i></div>
     <h1>Ezgi Paneli</h1>
     <span class="not" id="guncel">yükleniyor…</span>
+    <button class="kucuk" id="cikis">Çıkış</button>
   </header>
   <div class="filtre" id="filtre"></div>
   <section class="kpi" id="kpi"></section>
@@ -92,8 +93,11 @@ function liste(rows, birim) {
   return "<table>" + rows.map((r, i) => `<tr><td class="s">${i + 1}</td><td>${esc(r[0])}</td><td class="s">${r[1]} kez</td><td class="s">${r[2]} dk</td></tr>`).join("") + "</table>";
 }
 
+document.getElementById("cikis").onclick = async () => { await fetch("cikis", { method: "POST" }); location.reload(); };
+
 async function yukle() {
   const r = await fetch("veri.json" + (secili ? "?kurulum=" + encodeURIComponent(secili) : ""), { cache: "no-store" });
+  if (r.status === 401) { location.reload(); return; }  // oturum bitti: giriş sayfası
   const d = await r.json();
   const kur = d.kurulumlar;
   $("filtre").innerHTML = `<button class="cip ${secili ? "" : "on"}" data-k="">Tümü</button>` +
