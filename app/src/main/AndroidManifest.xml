@@ -31,12 +31,58 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- İkon seçici: her ikon ayrı bir giriş noktası; Ayarlar'dan seçilen açık, diğerleri kapalı.
+             Adları değiştirme: telefondaki seçim bu adlarla saklanıyor. -->
+        <activity-alias
+            android:name=".IkonPlak"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher"
+            android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+        <activity-alias
+            android:name=".IkonSade"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_sade"
+            android:roundIcon="@mipmap/ic_launcher_sade"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".IkonHalka"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_halka"
+            android:roundIcon="@mipmap/ic_launcher_halka"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".IkonDesen"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_desen"
+            android:roundIcon="@mipmap/ic_launcher_desen"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <service
             android:name=".PlaybackService"

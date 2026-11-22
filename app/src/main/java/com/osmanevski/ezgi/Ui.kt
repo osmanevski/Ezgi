@@ -37,6 +37,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.border
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -959,6 +962,8 @@ private fun SettingsScreen(vm: PlayerViewModel, onOpenEq: () -> Unit) {
             Text("Ayarlar", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(start = 20.dp, top = 20.dp, bottom = 8.dp))
         }
+        item { SettingsHeader("Görünüm") }
+        item { IconPicker() }
         item { SettingsHeader("Ses") }
         item {
             val presetName = if (eq.preset >= 0) EqPresets.all[eq.preset].first else "Özel"
@@ -1022,6 +1027,47 @@ private fun SettingsScreen(vm: PlayerViewModel, onOpenEq: () -> Unit) {
             Text("Arama ve indirme YouTube Music'ten (NewPipeExtractor), sözler LRCLIB'den. Reklam yok, hesap yok.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
+        }
+    }
+}
+
+/** Başlatıcıdaki ikonu değiştirir; önizleme siyah kare çerçeveli, telefondaki gibi. */
+@Composable
+private fun IconPicker() {
+    val context = LocalContext.current
+    var selected by remember { mutableStateOf(AppIcon.current(context)) }
+    Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+        Text("Uygulama ikonu", style = MaterialTheme.typography.bodyLarge)
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            AppIcon.entries.forEach { icon ->
+                val on = icon == selected
+                Column(
+                    Modifier.clip(RoundedCornerShape(12.dp)).clickable {
+                        if (!on) {
+                            AppIcon.select(context, icon)
+                            selected = icon
+                            android.widget.Toast.makeText(context,
+                                "İkon birkaç saniyede değişir. Ana ekrandaki kısayol kaybolursa uygulama listesinden yeniden ekle.",
+                                android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    }.padding(4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Box(
+                        Modifier.size(64.dp).clip(RoundedCornerShape(16.dp)).background(Color.Black)
+                            .then(if (on) Modifier.border(2.dp, Amber, RoundedCornerShape(16.dp)) else Modifier),
+                        Alignment.Center,
+                    ) {
+                        // Ön katman 108 birimlik tuvalde; görünen orta 72'lik kısım için büyüt.
+                        Image(painterResource(icon.preview), icon.label,
+                            Modifier.fillMaxSize().graphicsLayer { scaleX = 1.5f; scaleY = 1.5f })
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(icon.label, style = MaterialTheme.typography.labelSmall,
+                        color = if (on) Amber else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         }
     }
 }
