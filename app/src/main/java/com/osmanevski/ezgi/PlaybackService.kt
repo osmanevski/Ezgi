@@ -6,6 +6,9 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.google.common.util.concurrent.Futures
@@ -17,7 +20,12 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
+        // İndirmeden dinleme: YouTube akışı indirmedeki tarayıcı kimliğiyle istenir.
+        val http = DefaultHttpDataSource.Factory()
+            .setUserAgent(YouTube.USER_AGENT)
+            .setAllowCrossProtocolRedirects(true)
         val player = ExoPlayer.Builder(this)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http)))
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(C.USAGE_MEDIA)
@@ -42,8 +50,13 @@ class PlaybackService : MediaSessionService() {
                 ): ListenableFuture<MutableList<MediaItem>> = Futures.immediateFuture(
                     mediaItems.map { item ->
                         val id = item.mediaId.toLongOrNull()
-                        if (item.localConfiguration != null || id == null) item
-                        else item.buildUpon().setUri(songUri(id)).build()
+                        val stream = item.requestMetadata.mediaUri
+                        when {
+                            item.localConfiguration != null -> item
+                            id != null -> item.buildUpon().setUri(songUri(id)).build()
+                            stream != null -> item.buildUpon().setUri(stream).build() // YouTube akışı
+                            else -> item
+                        }
                     }.toMutableList()
                 )
             })

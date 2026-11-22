@@ -77,6 +77,19 @@ class DownloadCenter(private val context: Context) {
         }
     }
 
+    /** Şarkı telefondan silinince "indirildi" işaretini kaldır; aramada yeniden İndir görünsün. */
+    fun forget(songId: Long) {
+        scope.launch {
+            recordLock.withLock {
+                val urls = _done.value.filterValues { it == songId }.keys
+                if (urls.isEmpty()) return@withLock
+                _done.update { it - urls }
+                _states.update { it - urls }
+                recordFile.writeText(json.encodeToString(_done.value.map { DlRecord(it.key, it.value) }))
+            }
+        }
+    }
+
     private fun set(url: String, s: DlState) = _states.update { it + (url to s) }
 
     private suspend fun download(hit: SearchHit) {

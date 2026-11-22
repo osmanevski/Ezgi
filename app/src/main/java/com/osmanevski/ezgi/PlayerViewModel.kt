@@ -26,7 +26,9 @@ import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 
 data class NowPlaying(
-    val songId: Long? = null,
+    val songId: Long? = null,         // telefondaki şarkı; akışta null
+    val key: String? = null,          // her çalan öğe: şarkı kimliği ya da "yt:<video>"
+    val artworkUrl: String? = null,   // akışta YouTube kapağı
     val title: String = "",
     val artist: String = "",
     val isPlaying: Boolean = false,
@@ -170,6 +172,93 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun download(hit: SearchHit) = downloads.start(hit)
 
+    /** Akış adresi çözülürken o satır "Açılıyor…" der. */
+    private val _opening = MutableStateFlow<String?>(null)
+    val opening: StateFlow<String?> = _opening.asStateFlow()
+
+    /** İndirmeden dinle: en iyi ses akışı doğrudan çalara verilir. Adres birkaç saat geçerli. */
+    fun stream(hit: SearchHit) {
+        val c = controller ?: return
+        viewModelScope.launch {
+            _opening.value = hit.url
+            runCatching { YouTube.bestAudio(hit.url) }
+                .onSuccess { src ->
+                    val uri = android.net.Uri.parse(src.url)
+                    val item = MediaItem.Builder()
+                        .setMediaId("yt:" + (videoId(hit.url) ?: hit.url))
+                        .setUri(uri)
+                        .setRequestMetadata(MediaItem.RequestMetadata.Builder().setMediaUri(uri).build())
+                        .setMediaMetadata(
+                            MediaMetadata.Builder().setTitle(hit.title).setArtist(hit.artist)
+                                .setArtworkUri(hit.thumbnail?.let(android.net.Uri::parse)).setIsPlayable(true).build()
+                        )
+                        .build()
+                    c.shuffleModeEnabled = false
+                    c.setMediaItem(item)
+                    c.prepare()
+                    c.play()
+                }
+                .onFailure {
+                    if (it is kotlinx.coroutines.CancellationException) throw it
+                    android.widget.Toast.makeText(getApplication(),
+                        if (it is java.io.IOException) "İnternet bağlantısı yok gibi" else "Bu şarkı açılamadı",
+                        android.widget.Toast.LENGTH_SHORT).show()
+                }
+            _opening.value = null
+        }
+    }
+
+    // ---- silme ----
+
+    /** Android 10+ başka uygulamanın dosyası için sistem onayı gerekir; UI bu isteği açar. */
+    private val _deleteRequest = MutableStateFlow<android.content.IntentSender?>(null)
+    val deleteRequest: StateFlow<android.content.IntentSender?> = _deleteRequest.asStateFlow()
+    private var pendingDelete: Song? = null
+
+    fun deleteSong(song: Song) {
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            val r = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { app.contentResolver.delete(song.uri, null, null) }
+            }
+            val err = r.exceptionOrNull()
+            when {
+                err == null -> onDeleted(song.id)
+                android.os.Build.VERSION.SDK_INT >= 30 && err is SecurityException -> {
+                    pendingDelete = song
+                    _deleteRequest.value = android.provider.MediaStore.createDeleteRequest(app.contentResolver, listOf(song.uri)).intentSender
+                }
+                android.os.Build.VERSION.SDK_INT == 29 && err is android.app.RecoverableSecurityException -> {
+                    pendingDelete = song
+                    _deleteRequest.value = err.userAction.actionIntent.intentSender
+                }
+                else -> android.widget.Toast.makeText(app, "Silinemedi", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    /** Sistem onay penceresinin sonucu. Android 10'da onay yalnız izin verir; silmeyi yeniden dene. */
+    fun onDeleteResult(ok: Boolean) {
+        _deleteRequest.value = null
+        val song = pendingDelete ?: return
+        pendingDelete = null
+        if (!ok) return
+        if (android.os.Build.VERSION.SDK_INT == 29) deleteSong(song) else onDeleted(song.id)
+    }
+
+    private fun onDeleted(id: Long) {
+        val app = getApplication<Application>()
+        downloads.forget(id)
+        java.io.File(app.filesDir, "kapak/$id.jpg").delete()
+        java.io.File(app.filesDir, "sozler/$id.json").delete()
+        if (_playlists.value.any { id in it.songIds }) editLists { lists -> lists.map { it.copy(songIds = it.songIds - id) } }
+        controller?.let { c ->
+            for (i in c.mediaItemCount - 1 downTo 0) if (c.getMediaItemAt(i).mediaId == id.toString()) c.removeMediaItem(i)
+        }
+        _songs.update { list -> list.filterNot { it.id == id } }
+        android.widget.Toast.makeText(app, "Silindi", android.widget.Toast.LENGTH_SHORT).show()
+    }
+
     /** İndirilmiş bir parçayı doğrudan çal. */
     fun playDownloaded(songId: Long) {
         val all = _songs.value
@@ -219,6 +308,8 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
         val item = c.currentMediaItem
         _now.value = NowPlaying(
             songId = item?.mediaId?.toLongOrNull(),
+            key = item?.mediaId?.takeIf { it.isNotEmpty() },
+            artworkUrl = item?.mediaMetadata?.artworkUri?.toString(),
             title = item?.mediaMetadata?.title?.toString().orEmpty(),
             artist = item?.mediaMetadata?.artist?.toString().orEmpty(),
             isPlaying = c.isPlaying,

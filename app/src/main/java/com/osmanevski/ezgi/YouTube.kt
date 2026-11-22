@@ -97,11 +97,11 @@ object YouTube {
  * Arama sonucunun adresi music.youtube.com, youtu.be ya da ek parametreli gelebiliyor;
  * NewPipe bazılarını "URL not accepted" diye reddediyor. Kimliği çekip düz izleme adresine çeviriyoruz.
  */
-internal fun watchUrl(url: String): String {
-    val id = Regex("""(?:[?&]v=|youtu\.be/|/shorts/|/embed/|/live/)([A-Za-z0-9_-]{11})""").find(url)?.groupValues?.get(1)
+internal fun watchUrl(url: String): String = videoId(url)?.let { "https://www.youtube.com/watch?v=$it" } ?: url
+
+internal fun videoId(url: String): String? =
+    Regex("""(?:[?&]v=|youtu\.be/|/shorts/|/embed/|/live/)([A-Za-z0-9_-]{11})""").find(url)?.groupValues?.get(1)
         ?: Regex("""^[A-Za-z0-9_-]{11}$""").find(url)?.value
-    return if (id != null) "https://www.youtube.com/watch?v=$id" else url
-}
 
 /** NewPipeExtractor'ın HTTP katmanı: OkHttp ile. */
 private object OkDownloader : Downloader() {

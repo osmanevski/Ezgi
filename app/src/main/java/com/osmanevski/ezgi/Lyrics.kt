@@ -35,9 +35,9 @@ object LyricsRepo {
     private const val RETRY_MISSING_MS = 7L * 24 * 3600 * 1000
     private val json = Json { ignoreUnknownKeys = true }
 
-    suspend fun get(context: Context, songId: Long, artist: String, title: String, durationMs: Long): Lyrics =
+    suspend fun get(context: Context, cacheKey: String, artist: String, title: String, durationMs: Long): Lyrics =
         withContext(Dispatchers.IO) {
-            val file = File(context.filesDir, "sozler/$songId.json")
+            val file = File(context.filesDir, "sozler/${cacheKey.replace(Regex("[^A-Za-z0-9_-]"), "_")}.json")
             val cached = runCatching { json.decodeFromString<LyricsCache>(file.readText()) }.getOrNull()
             if (cached != null && (cached.synced.isNotBlank() || cached.plain.isNotBlank() ||
                     System.currentTimeMillis() - cached.at < RETRY_MISSING_MS)) {

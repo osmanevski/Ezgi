@@ -5,6 +5,9 @@ import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.util.LruCache
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -108,6 +111,13 @@ fun PermissionScreen(onAsk: () -> Unit) {
 @Composable
 fun EzgiApp(vm: PlayerViewModel) {
     UpdateDialog(vm)
+    val deleteReq by vm.deleteRequest.collectAsStateWithLifecycle()
+    val deleteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
+        vm.onDeleteResult(it.resultCode == android.app.Activity.RESULT_OK)
+    }
+    LaunchedEffect(deleteReq) {
+        deleteReq?.let { deleteLauncher.launch(IntentSenderRequest.Builder(it).build()) }
+    }
     val songs by vm.songs.collectAsStateWithLifecycle()
     val sortedSongs by vm.sortedSongs.collectAsStateWithLifecycle()
     val sortMode by vm.sortMode.collectAsStateWithLifecycle()
@@ -127,7 +137,7 @@ fun EzgiApp(vm: PlayerViewModel) {
         Scaffold(
             bottomBar = {
                 Column {
-                    if (now.songId != null) MiniPlayer(now, vm::togglePlay, vm::next) { playerOpen = true }
+                    if (now.key != null) MiniPlayer(now, vm::togglePlay, vm::next) { playerOpen = true }
                     NavigationBar {
                         NavigationBarItem(
                             selected = tab == 0, onClick = { tab = 0; openListId = null },
@@ -151,6 +161,7 @@ fun EzgiApp(vm: PlayerViewModel) {
                     tab == 2 -> DownloadScreen(vm)
                     tab == 0 -> SongsScreen(sortedSongs, loading, now.songId, vm::reloadLibrary,
                         sortMode = sortMode, onSort = vm::setSortMode, onSaveOrder = vm::saveCustomOrder,
+                        onDelete = vm::deleteSong,
                         onPlay = { q, i -> vm.play(q, i) },
                         onShuffle = { q -> vm.play(q, 0, shuffle = true) },
                         onAdd = { addTarget = it })
@@ -172,7 +183,7 @@ fun EzgiApp(vm: PlayerViewModel) {
         }
 
         AnimatedVisibility(
-            visible = playerOpen && now.songId != null,
+            visible = playerOpen && now.key != null,
             enter = slideInVertically { it }, exit = slideOutVertically { it },
         ) {
             FullPlayer(now, vm, onClose = { playerOpen = false })
@@ -196,8 +207,20 @@ private fun SongsScreen(
     songs: List<Song>, loading: Boolean, currentId: Long?, onRefresh: () -> Unit,
     sortMode: SortMode, onSort: (SortMode) -> Unit, onSaveOrder: (List<Long>) -> Unit,
     onPlay: (List<Song>, Int) -> Unit, onShuffle: (List<Song>) -> Unit, onAdd: (Song) -> Unit,
+    onDelete: (Song) -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
+    var toDelete by remember { mutableStateOf<Song?>(null) }
+    toDelete?.let { s ->
+        AlertDialog(
+            onDismissRequest = { toDelete = null },
+            icon = { Icon(Icons.Default.Delete, null) },
+            title = { Text("Şarkı silinsin mi?") },
+            text = { Text("\"${s.title}\" telefondan tamamen silinir; listelerden de çıkar.") },
+            confirmButton = { TextButton(onClick = { onDelete(s); toDelete = null }) { Text("Sil", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { toDelete = null }) { Text("Vazgeç") } },
+        )
+    }
     var editing by rememberSaveable { mutableStateOf(false) }
     if (editing) {
         OrderEditor(songs, currentId, onDone = { ids -> onSaveOrder(ids); editing = false })
@@ -241,6 +264,9 @@ private fun SongsScreen(
                         DropdownMenuItem(text = { Text("Listeye ekle") },
                             leadingIcon = { Icon(Icons.AutoMirrored.Filled.PlaylistAdd, null) },
                             onClick = { onAdd(s); close() })
+                        DropdownMenuItem(text = { Text("Sil") },
+                            leadingIcon = { Icon(Icons.Default.Delete, null) },
+                            onClick = { toDelete = s; close() })
                     }
                 }
             }
@@ -378,6 +404,8 @@ private fun DownloadScreen(vm: PlayerViewModel) {
     val error by vm.searchError.collectAsStateWithLifecycle()
     val states by vm.downloads.states.collectAsStateWithLifecycle()
     val done by vm.downloads.done.collectAsStateWithLifecycle()
+    val opening by vm.opening.collectAsStateWithLifecycle()
+    val now by vm.now.collectAsStateWithLifecycle()
     var query by rememberSaveable { mutableStateOf("") }
     var songsOnly by rememberSaveable { mutableStateOf(true) }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -403,11 +431,14 @@ private fun DownloadScreen(vm: PlayerViewModel) {
         when {
             searching -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
             error != null -> Empty(error!!)
-            hits.isEmpty() -> Empty("YouTube'da ara, indir.\nİnen şarkılar telefonun Müzik/Ezgi klasörüne gider ve Şarkılar'da görünür.")
+            hits.isEmpty() -> Empty("YouTube'da ara. Dokununca indirmeden çalar, ↓ ile indirir.\nİnen şarkılar telefonun Müzik/Ezgi klasörüne gider ve Şarkılar'da görünür.")
             else -> LazyColumn(Modifier.fillMaxSize().padding(top = 8.dp)) {
                 items(hits, key = { it.url }) { hit ->
                     HitRow(hit, states[hit.url], done[hit.url],
-                        onDownload = { vm.download(hit) }, onPlay = { vm.playDownloaded(it) })
+                        opening = opening == hit.url,
+                        playing = now.key == "yt:" + videoId(hit.url),
+                        onDownload = { vm.download(hit) }, onPlay = { vm.playDownloaded(it) },
+                        onStream = { vm.stream(hit) })
                 }
             }
         }
@@ -415,18 +446,23 @@ private fun DownloadScreen(vm: PlayerViewModel) {
 }
 
 @Composable
-private fun HitRow(hit: SearchHit, state: DlState?, doneId: Long?, onDownload: () -> Unit, onPlay: (Long) -> Unit) {
+private fun HitRow(
+    hit: SearchHit, state: DlState?, doneId: Long?, opening: Boolean, playing: Boolean,
+    onDownload: () -> Unit, onPlay: (Long) -> Unit, onStream: () -> Unit,
+) {
     Row(
         Modifier.fillMaxWidth()
-            .clickable { if (doneId != null) onPlay(doneId) else if (state !is DlState.Running) onDownload() }
+            .clickable { if (doneId != null) onPlay(doneId) else onStream() }
             .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         RemoteImage(hit.thumbnail, 52.dp)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(hit.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(hit.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                color = if (playing) Amber else MaterialTheme.colorScheme.onSurface)
             val sub = when {
+                opening -> "Açılıyor…"
                 state is DlState.Failed -> state.reason
                 doneId != null -> "İndirildi · dokun, çal"
                 else -> listOf(hit.artist, if (hit.durationSec > 0) formatTime(hit.durationSec * 1000) else "")
@@ -455,7 +491,7 @@ private fun HitRow(hit: SearchHit, state: DlState?, doneId: Long?, onDownload: (
 private object RemoteCache { val bitmaps = LruCache<String, Bitmap>(60) }
 
 @Composable
-private fun RemoteImage(url: String?, size: Dp) {
+private fun RemoteImage(url: String?, size: Dp, corner: Dp = 8.dp) {
     val img by produceState(url?.let { RemoteCache.bitmaps.get(it) }, url) {
         if (value != null || url == null) return@produceState
         value = withContext(Dispatchers.IO) {
@@ -469,7 +505,7 @@ private fun RemoteImage(url: String?, size: Dp) {
         }
     }
     Box(
-        Modifier.size(size).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh),
+        Modifier.size(size).clip(RoundedCornerShape(corner)).background(MaterialTheme.colorScheme.surfaceContainerHigh),
         Alignment.Center,
     ) {
         img?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
@@ -607,7 +643,7 @@ private fun MiniPlayer(now: NowPlaying, onToggle: () -> Unit, onNext: () -> Unit
             val progress = if (now.durationMs > 0) now.positionMs.toFloat() / now.durationMs else 0f
             LinearProgressIndicator(progress = { progress }, Modifier.fillMaxWidth().height(2.dp), color = Amber, trackColor = Color.Transparent)
             Row(Modifier.fillMaxWidth().padding(start = 12.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                now.songId?.let { Artwork(it, 44.dp) }
+                NowArtwork(now, 44.dp)
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(now.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
@@ -653,11 +689,11 @@ private fun FullPlayer(now: NowPlaying, vm: PlayerViewModel, onClose: () -> Unit
                         tint = if (eqOn.enabled) Amber else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            if (showLyrics && now.songId != null) {
+            if (showLyrics && now.key != null) {
                 LyricsPanel(now, vm, Modifier.weight(1f).fillMaxWidth().padding(top = 8.dp, bottom = 16.dp))
             } else {
                 Spacer(Modifier.weight(1f))
-                now.songId?.let { Artwork(it, 300.dp, corner = 20.dp) }
+                NowArtwork(now, 300.dp, corner = 20.dp)
                 Spacer(Modifier.height(32.dp))
             }
             Text(now.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
@@ -716,13 +752,14 @@ private sealed interface LyricsUi {
 @Composable
 private fun LyricsPanel(now: NowPlaying, vm: PlayerViewModel, modifier: Modifier) {
     val context = LocalContext.current
-    val songId = now.songId ?: return
+    val key = now.key ?: return
     var retry by remember { mutableIntStateOf(0) }
-    val ui by produceState<LyricsUi>(LyricsUi.Loading, songId, retry) {
+    val ui by produceState<LyricsUi>(LyricsUi.Loading, key, retry) {
         value = LyricsUi.Loading
-        val song = vm.songs.value.firstOrNull { it.id == songId }
+        val song = now.songId?.let { id -> vm.songs.value.firstOrNull { it.id == id } }
+        if (song == null && now.durationMs <= 0) kotlinx.coroutines.delay(1500) // akışta süre biraz geç gelir
         value = runCatching {
-            LyricsRepo.get(context, songId, song?.artist ?: now.artist, song?.title ?: now.title, song?.durationMs ?: now.durationMs)
+            LyricsRepo.get(context, key, song?.artist ?: now.artist, song?.title ?: now.title, song?.durationMs ?: now.durationMs)
         }.fold({ LyricsUi.Done(it) }, { LyricsUi.Offline })
     }
     Box(modifier, contentAlignment = Alignment.Center) {
@@ -947,6 +984,15 @@ private fun UpdateDialog(vm: PlayerViewModel) {
 }
 
 // ---------------- kapak ----------------
+
+/** Çalan öğenin kapağı: telefondaki şarkıda gömülü kapak, akışta YouTube kapağı. */
+@Composable
+private fun NowArtwork(now: NowPlaying, size: Dp, corner: Dp = 8.dp) {
+    when {
+        now.songId != null -> Artwork(now.songId, size, corner)
+        else -> RemoteImage(now.artworkUrl, size, corner)
+    }
+}
 
 private object ArtCache {
     val bitmaps = LruCache<Long, Bitmap>(80)

@@ -8,9 +8,9 @@ on the phone itself. No server, no account. UI in Turkish.*
 
 ## Özellikler
 
-- Telefondaki şarkılar: arama, sıralama (son eklenen, ad, sanatçı, albüm, özel sıra), sürükleyerek sıra
+- Telefondaki şarkılar: arama, sıralama (son eklenen, ad, sanatçı, albüm, özel sıra), sürükleyerek sıra, silme
 - Çalma listeleri, karışık / tekrar, ekran kapalıyken çalma, bildirim ve kilit ekranı kontrolleri
-- YouTube Music araması ve indirme ([NewPipeExtractor](https://github.com/TeamNewPipe/NewPipeExtractor));
+- YouTube Music araması: dokununca indirmeden çalar, ↓ ile indirir ([NewPipeExtractor](https://github.com/TeamNewPipe/NewPipeExtractor));
   şarkılar `Müzik/Ezgi` klasörüne iner, uygulama silinse de kalır
 - Ekolayzer: sürüklenebilir eğri ve hazır ayarlar
 - Şarkı sözleri, zamanlı (çalan satır vurgulu; [LRCLIB](https://lrclib.net))
