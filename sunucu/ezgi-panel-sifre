@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Ezgi paneli (osmanevski.com/ezgi/panel/) şifresini koyar ya da değiştirir. Kullanıcı adı: osman.
+# Şifre ekrana ve süreç listesine düşmez; Caddy'ye yalnız bcrypt özeti yazılır.
+set -euo pipefail
+SNIP=/etc/caddy/ezgi-panel.caddy
+read -rsp "Ezgi paneli şifresi: " p1; echo
+read -rsp "Tekrar: " p2; echo
+[ "$p1" = "$p2" ] || { echo "Şifreler eşleşmedi." >&2; exit 1; }
+[ "${#p1}" -ge 10 ] || { echo "En az 10 karakter olsun." >&2; exit 1; }
+h=$(printf '%s\n' "$p1" | caddy hash-password)
+unset p1 p2
+cp "$SNIP" "$SNIP.onceki"
+cat > "$SNIP" <<SNIPEOF
+# ezgi-panel-sifre tarafından yazıldı ($(date -Iseconds)). Kullanıcı: osman
+@panel path /panel /panel/*
+basic_auth @panel {
+	osman $h
+}
+SNIPEOF
+if caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
+  systemctl reload caddy && echo "Tamam: https://osmanevski.com/ezgi/panel/ (kullanıcı adı: osman)"
+else
+  mv "$SNIP.onceki" "$SNIP"; echo "Caddy yapılandırması geçersiz çıktı; eski hâle döndürüldü." >&2; exit 1
+fi

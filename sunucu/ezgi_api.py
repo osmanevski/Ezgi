@@ -46,6 +46,9 @@ CREATE TABLE IF NOT EXISTS olaylar (
 CREATE INDEX IF NOT EXISTS olaylar_kurulum ON olaylar(kurulum, seq);
 CREATE INDEX IF NOT EXISTS olaylar_zaman ON olaylar(zaman);
 """
+PANEL_HTML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "panel.html")
+GH = "https://api.github.com/repos/osmanevski/Ezgi/releases"
+_gh_cache = {"t": 0, "v": None}
 
 _local = threading.local()
 _rate = {}
@@ -95,6 +98,18 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_file(self, path, ctype):
+        try:
+            body = open(path, "rb").read()
+        except OSError:
+            return self.send(404, {"hata": "yok"})
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
     def auth(self):
         h = self.headers.get("Authorization", "")
         if not h.startswith("Bearer ") or "." not in h:
@@ -115,6 +130,14 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
+        # /panel*: Caddy'de basic_auth arkasında; servis yalnız 127.0.0.1'de dinliyor.
+        if u.path == "/panel":  # göreli adresler (veri.json, ad) /panel/ altında çözülsün
+            self.send_response(308); self.send_header("Location", "panel/"); self.send_header("Content-Length", "0"); self.end_headers()
+            return
+        if u.path == "/panel/":
+            return self.send_file(PANEL_HTML, "text/html; charset=utf-8")
+        if u.path == "/panel/veri.json":
+            return self.send(200, panel_data(parse_qs(u.query).get("kurulum", [None])[0]))
         if u.path == "/v1/saglik":
             return self.send(200, {"durum": "iyi"})
         if u.path == "/v1/olaylar":
@@ -135,6 +158,15 @@ class H(BaseHTTPRequestHandler):
         self.send(404, {"hata": "yok"})
 
     def do_POST(self):
+        if urlparse(self.path).path == "/panel/ad":
+            n = int(self.headers.get("Content-Length") or 0)
+            try:
+                d = json.loads(self.rfile.read(min(n, 4096)))
+                kur, ad = d["kurulum"], (s(d.get("ad"), 60) or "").strip() or None
+            except Exception:
+                return self.send(400, {"hata": "biçim"})
+            c = db(); c.execute("UPDATE kurulumlar SET ad=? WHERE id=?", (ad, kur)); c.commit()
+            return self.send(200, {"tamam": True})
         if urlparse(self.path).path != "/v1/olaylar":
             return self.send(404, {"hata": "yok"})
         kur = self.auth()
@@ -171,10 +203,59 @@ class H(BaseHTTPRequestHandler):
         self.send(200, {"alinan": c.total_changes - before - 1, "gecerli": len(rows)})
 
 
+def github_downloads():
+    """Sürüm başına indirme sayısı; GitHub'a en çok 10 dakikada bir sorulur."""
+    if time.time() - _gh_cache["t"] < 600 and _gh_cache["v"] is not None:
+        return _gh_cache["v"]
+    import urllib.request
+    try:
+        req = urllib.request.Request(GH, headers={"User-Agent": "Ezgi-panel", "Accept": "application/vnd.github+json"})
+        rel = json.loads(urllib.request.urlopen(req, timeout=10).read())
+        v = [{"surum": r["tag_name"], "tarih": r["published_at"],
+              "indirme": sum(a["download_count"] for a in r["assets"] if a["name"].endswith(".apk"))} for r in rel]
+    except Exception:
+        v = _gh_cache["v"] or []
+    _gh_cache.update(t=time.time(), v=v)
+    return v
+
+
+def panel_data(kurulum=None):
+    c = db()
+    where, args = ("WHERE o.kurulum=?", [kurulum]) if kurulum else ("", [])
+    and_ = "AND" if kurulum else "WHERE"
+    kur = [dict(zip(["id", "ad", "surum", "ilk", "son", "dinleme", "dakika", "indirme"], r)) for r in c.execute(
+        "SELECT k.id, k.ad, k.surum, k.ilk, k.son,"
+        " (SELECT COUNT(*) FROM olaylar WHERE kurulum=k.id AND tur='dinleme'),"
+        " (SELECT COALESCE(SUM(dinlenen_ms),0)/60000 FROM olaylar WHERE kurulum=k.id AND tur='dinleme'),"
+        " (SELECT COUNT(*) FROM olaylar WHERE kurulum=k.id AND tur='indirme')"
+        " FROM kurulumlar k ORDER BY k.son DESC")]
+    son = [dict(zip(["zaman", "kurulum", "ad", "tur", "baslik", "sanatci", "dinlenen_ms", "sure_ms", "bitti", "atlandi", "video"], r))
+           for r in c.execute(
+        "SELECT o.zaman, o.kurulum, k.ad, o.tur, o.baslik, o.sanatci, o.dinlenen_ms, o.sure_ms, o.bitti, o.atlandi, o.video"
+        f" FROM olaylar o LEFT JOIN kurulumlar k ON k.id=o.kurulum {where} ORDER BY o.zaman DESC LIMIT 150", args)]
+    otuz = int(time.time() * 1000) - 30 * 86400_000
+    def top(group, days):
+        q = (f"SELECT {group}, COUNT(*), COALESCE(SUM(dinlenen_ms),0)/60000 FROM olaylar o {where} {and_} tur='dinleme'"
+             f" AND dinlenen_ms>=30000 {'AND zaman>=' + str(otuz) if days else ''} GROUP BY {group} ORDER BY 2 DESC, 3 DESC LIMIT 10")
+        return [list(r) for r in c.execute(q, args)]
+    gunluk = [list(r) for r in c.execute(
+        f"SELECT date(zaman/1000,'unixepoch','+3 hours') g, COALESCE(SUM(dinlenen_ms),0)/60000 FROM olaylar o {where} {and_} tur='dinleme'"
+        f" AND zaman>=? GROUP BY g ORDER BY g", args + [otuz])]
+    return {"kurulumlar": kur, "son": son, "sarki_30": top("baslik || ' — ' || sanatci", True),
+            "sarki_tum": top("baslik || ' — ' || sanatci", False), "sanatci_30": top("sanatci", True),
+            "gunluk": gunluk, "indirmeler": github_downloads(), "secili": kurulum}
+
+
 def main():
     os.makedirs(os.path.dirname(DB), exist_ok=True)
     c = sqlite3.connect(DB)
     c.executescript(SCHEMA)
+    c.close()
+    c = sqlite3.connect(DB)
+    cols = [r[1] for r in c.execute("PRAGMA table_info(kurulumlar)")]
+    if "ad" not in cols:
+        c.execute("ALTER TABLE kurulumlar ADD COLUMN ad TEXT")  # panelde verilen ad, ör. "Mehmet Emin"
+        c.commit()
     c.close()
     ThreadingHTTPServer(("127.0.0.1", PORT), H).serve_forever()
 

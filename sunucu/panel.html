@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Ezgi Paneli</title>
+<style>
+  :root { --bg:#000; --kart:#111; --cizgi:#222; --yazi:#eee; --soluk:#8a8a8a; --altin:#EBC35A; --kirmizi:#C4302B; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--yazi); font:15px/1.45 -apple-system, system-ui, "Segoe UI", sans-serif; }
+  main { max-width:1100px; margin:0 auto; padding:24px 16px 64px; }
+  header { display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:20px; }
+  header h1 { margin:0; font-size:26px; letter-spacing:.3px; }
+  header .not { color:var(--soluk); font-size:13px; margin-left:auto; }
+  .logo { width:34px; height:34px; border-radius:50%; border:3px solid var(--altin); display:grid; place-items:center; }
+  .logo i { width:12px; height:12px; border-radius:50%; background:#A70000; display:block; }
+  .filtre { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
+  .cip { background:var(--kart); border:1px solid var(--cizgi); color:var(--yazi); border-radius:999px; padding:6px 12px; cursor:pointer; font:inherit; font-size:13px; }
+  .cip.on { border-color:var(--altin); color:var(--altin); }
+  .kpi { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin-bottom:16px; }
+  .kart { background:var(--kart); border:1px solid var(--cizgi); border-radius:14px; padding:16px; }
+  .kpi .sayi { font-size:30px; font-weight:700; color:var(--altin); font-variant-numeric:tabular-nums; }
+  .kpi .ad { color:var(--soluk); font-size:13px; }
+  .izgara { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:760px) { .izgara { grid-template-columns:1fr; } }
+  h2 { font-size:15px; margin:0 0 12px; color:var(--soluk); font-weight:600; text-transform:uppercase; letter-spacing:.6px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td, th { padding:7px 6px; border-bottom:1px solid var(--cizgi); text-align:left; vertical-align:top; }
+  th { color:var(--soluk); font-weight:500; font-size:12px; }
+  td.s { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; color:var(--soluk); }
+  .tablo { overflow-x:auto; }
+  .bos { color:var(--soluk); padding:8px 0; }
+  .etiket { font-size:11px; padding:2px 7px; border-radius:999px; border:1px solid var(--cizgi); color:var(--soluk); white-space:nowrap; }
+  .etiket.bitti { color:var(--altin); border-color:#4a3d1a; }
+  .etiket.atladi { color:var(--kirmizi); border-color:#4a1a1a; }
+  .etiket.indirme { color:#7fb3ff; border-color:#1a2f4a; }
+  .grafik { display:flex; align-items:flex-end; gap:3px; height:120px; padding-top:8px; }
+  .grafik div { flex:1; background:var(--altin); border-radius:3px 3px 0 0; min-height:2px; opacity:.85; position:relative; }
+  .grafik div:hover { opacity:1; }
+  .eksen { display:flex; justify-content:space-between; color:var(--soluk); font-size:11px; margin-top:6px; }
+  button.kucuk { background:none; border:1px solid var(--cizgi); color:var(--yazi); border-radius:8px; padding:3px 9px; cursor:pointer; font:inherit; font-size:12px; }
+  .soluk { color:var(--soluk); }
+  .alt { margin-top:16px; }
+  a { color:var(--altin); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="logo"><i></i></div>
+    <h1>Ezgi Paneli</h1>
+    <span class="not" id="guncel">yükleniyor…</span>
+  </header>
+  <div class="filtre" id="filtre"></div>
+  <section class="kpi" id="kpi"></section>
+  <section class="kart alt">
+    <h2>Son 30 gün · günlük dinleme (dakika)</h2>
+    <div class="grafik" id="grafik"></div>
+    <div class="eksen" id="eksen"></div>
+  </section>
+  <section class="izgara alt">
+    <div class="kart"><h2>En çok dinlenen · 30 gün</h2><div id="sarki30"></div></div>
+    <div class="kart"><h2>Sanatçılar · 30 gün</h2><div id="sanatci30"></div></div>
+  </section>
+  <section class="kart alt">
+    <h2>Dinleme akışı</h2>
+    <div class="tablo" id="akis"></div>
+  </section>
+  <section class="izgara alt">
+    <div class="kart"><h2>Kurulumlar (paylaşanlar)</h2><div class="tablo" id="kurulumlar"></div>
+      <p class="soluk" style="font-size:12px">Yalnız "Paylaş" diyen telefonlar görünür. Ad vermek için satırdaki düğmeye bas.</p></div>
+    <div class="kart"><h2>İndirmeler (GitHub)</h2><div id="indirmeler"></div>
+      <p class="soluk" style="font-size:12px">APK indirme sayısı: kişi değil indirme. Güncellemeler ve sürüm doğrulama indirmeleri de dahil.</p></div>
+  </section>
+  <section class="kart alt">
+    <h2>En çok dinlenen · tüm zamanlar</h2><div id="sarkitum"></div>
+  </section>
+</main>
+<script>
+let secili = new URLSearchParams(location.search).get("kurulum");
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+const dk = ms => Math.round((ms || 0) / 60000);
+const sure = ms => { const s = Math.round((ms || 0) / 1000); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
+const zaman = t => new Date(t).toLocaleString("tr-TR", { day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" });
+const kisa = id => id ? id.slice(0, 8) : "?";
+const adOf = (k) => k.ad || ("Kurulum " + kisa(k.id));
+
+function liste(rows, birim) {
+  if (!rows.length) return '<div class="bos">Henüz veri yok.</div>';
+  return "<table>" + rows.map((r, i) => `<tr><td class="s">${i + 1}</td><td>${esc(r[0])}</td><td class="s">${r[1]} kez</td><td class="s">${r[2]} dk</td></tr>`).join("") + "</table>";
+}
+
+async function yukle() {
+  const r = await fetch("veri.json" + (secili ? "?kurulum=" + encodeURIComponent(secili) : ""), { cache: "no-store" });
+  const d = await r.json();
+  const kur = d.kurulumlar;
+  $("filtre").innerHTML = `<button class="cip ${secili ? "" : "on"}" data-k="">Tümü</button>` +
+    kur.map(k => `<button class="cip ${secili === k.id ? "on" : ""}" data-k="${esc(k.id)}">${esc(adOf(k))}</button>`).join("");
+  document.querySelectorAll(".cip").forEach(b => b.onclick = () => {
+    secili = b.dataset.k || null;
+    history.replaceState(null, "", secili ? "?kurulum=" + encodeURIComponent(secili) : location.pathname);
+    yukle();
+  });
+
+  const kapsam = secili ? kur.filter(k => k.id === secili) : kur;
+  const dinleme = kapsam.reduce((a, k) => a + k.dinleme, 0);
+  const dakika = kapsam.reduce((a, k) => a + k.dakika, 0);
+  const indirme = kapsam.reduce((a, k) => a + k.indirme, 0);
+  const gh = d.indirmeler.reduce((a, x) => a + x.indirme, 0);
+  const kpi = [["Kurulum (paylaşan)", kapsam.length], ["Dinleme", dinleme], ["Dinleme süresi", dakika + " dk"], ["Ezgi'den indirilen şarkı", indirme], ["APK indirmesi (GitHub)", gh]];
+  $("kpi").innerHTML = kpi.map(([a, s]) => `<div class="kart"><div class="sayi">${s}</div><div class="ad">${a}</div></div>`).join("");
+
+  // 30 günlük grafik: boş günler de görünsün
+  const gun = new Map(d.gunluk.map(([g, m]) => [g, m]));
+  const gunler = [...Array(30)].map((_, i) => { const t = new Date(Date.now() - (29 - i) * 864e5 + 3 * 36e5); return t.toISOString().slice(0, 10); });
+  const enCok = Math.max(1, ...gunler.map(g => gun.get(g) || 0));
+  $("grafik").innerHTML = gunler.map(g => `<div title="${g}: ${gun.get(g) || 0} dk" style="height:${(gun.get(g) || 0) / enCok * 100}%"></div>`).join("");
+  $("eksen").innerHTML = `<span>${gunler[0].slice(5)}</span><span>${gunler[29].slice(5)}</span>`;
+
+  $("sarki30").innerHTML = liste(d.sarki_30);
+  $("sanatci30").innerHTML = liste(d.sanatci_30);
+  $("sarkitum").innerHTML = liste(d.sarki_tum);
+
+  $("akis").innerHTML = d.son.length ? "<table><tr><th>Zaman</th><th>Kim</th><th>Şarkı</th><th></th><th class='s'>Dinlenen</th></tr>" + d.son.map(e => {
+    const et = e.tur === "indirme" ? '<span class="etiket indirme">indirdi</span>' : e.bitti ? '<span class="etiket bitti">sonuna kadar</span>' : e.atlandi ? '<span class="etiket atladi">atladı</span>' : '<span class="etiket">yarıda</span>';
+    const kim = e.ad || ("Kurulum " + kisa(e.kurulum));
+    const sarki = `${esc(e.baslik)} <span class="soluk">— ${esc(e.sanatci)}</span>`;
+    const link = e.video ? ` <a href="https://music.youtube.com/watch?v=${encodeURIComponent(e.video)}" target="_blank" rel="noopener">↗</a>` : "";
+    return `<tr><td class="s">${zaman(e.zaman)}</td><td>${esc(kim)}</td><td>${sarki}${link}</td><td>${et}</td><td class="s">${e.tur === "dinleme" ? sure(e.dinlenen_ms) + (e.sure_ms ? " / " + sure(e.sure_ms) : "") : ""}</td></tr>`;
+  }).join("") + "</table>" : '<div class="bos">Henüz dinleme yok. Bir telefon "Paylaş" deyip dinledikçe burada görünür.</div>';
+
+  $("kurulumlar").innerHTML = kur.length ? "<table><tr><th>Ad</th><th>Sürüm</th><th>Son görülme</th><th class='s'>Dinleme</th><th></th></tr>" + kur.map(k =>
+    `<tr><td>${esc(adOf(k))}<div class="soluk" style="font-size:11px">ilk: ${zaman(k.ilk)}</div></td><td>${esc(k.surum || "")}</td><td class="s">${zaman(k.son)}</td><td class="s">${k.dinleme} · ${k.dakika} dk</td><td><button class="kucuk" data-ad="${esc(k.id)}">Ad ver</button></td></tr>`
+  ).join("") + "</table>" : '<div class="bos">Henüz paylaşan kurulum yok.</div>';
+  document.querySelectorAll("[data-ad]").forEach(b => b.onclick = async () => {
+    const k = kur.find(x => x.id === b.dataset.ad);
+    const ad = prompt("Bu telefonun adı (boş bırakırsan kaldırılır):", k.ad || "");
+    if (ad === null) return;
+    await fetch("ad", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kurulum: k.id, ad }) });
+    yukle();
+  });
+
+  $("indirmeler").innerHTML = d.indirmeler.length ? "<table>" + d.indirmeler.map(x => `<tr><td>${esc(x.surum)}</td><td class="s">${new Date(x.tarih).toLocaleDateString("tr-TR")}</td><td class="s">${x.indirme}</td></tr>`).join("") + "</table>" : '<div class="bos">GitHub\'a ulaşılamadı.</div>';
+
+  $("guncel").textContent = "güncellendi " + new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) + " · 30 sn'de bir yenilenir";
+}
+yukle().catch(e => $("guncel").textContent = "yüklenemedi: " + e);
+setInterval(() => yukle().catch(() => {}), 30000);
+</script>
+</body>
+</html>
