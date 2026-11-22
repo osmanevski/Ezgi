@@ -1055,8 +1055,8 @@ private fun IconPicker() {
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Box(
-                        Modifier.size(64.dp).clip(RoundedCornerShape(16.dp)).background(Color.Black)
-                            .then(if (on) Modifier.border(2.dp, Amber, RoundedCornerShape(16.dp)) else Modifier),
+                        Modifier.size(56.dp).clip(RoundedCornerShape(14.dp)).background(Color.Black)
+                            .then(if (on) Modifier.border(2.dp, Amber, RoundedCornerShape(14.dp)) else Modifier),
                         Alignment.Center,
                     ) {
                         // Ön katman 108 birimlik tuvalde; görünen orta 72'lik kısım için büyüt.

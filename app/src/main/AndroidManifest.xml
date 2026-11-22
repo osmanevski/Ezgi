@@ -21,8 +21,8 @@
 
     <application
         android:allowBackup="true"
-        android:icon="@mipmap/ic_launcher"
-        android:roundIcon="@mipmap/ic_launcher"
+        android:icon="@mipmap/ic_launcher_minimal"
+        android:roundIcon="@mipmap/ic_launcher_minimal"
         android:label="Ezgi"
         android:supportsRtl="true"
         android:theme="@style/Theme.Ezgi">
@@ -37,7 +37,7 @@
              Adları değiştirme: telefondaki seçim bu adlarla saklanıyor. -->
         <activity-alias
             android:name=".IkonPlak"
-            android:enabled="true"
+            android:enabled="false"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
             android:roundIcon="@mipmap/ic_launcher"
@@ -65,6 +65,18 @@
             android:exported="true"
             android:icon="@mipmap/ic_launcher_halka"
             android:roundIcon="@mipmap/ic_launcher_halka"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".IkonMinimal"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_minimal"
+            android:roundIcon="@mipmap/ic_launcher_minimal"
             android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
