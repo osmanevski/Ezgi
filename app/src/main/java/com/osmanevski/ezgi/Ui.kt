@@ -626,6 +626,7 @@ private fun MiniPlayer(now: NowPlaying, onToggle: () -> Unit, onNext: () -> Unit
 @Composable
 private fun FullPlayer(now: NowPlaying, vm: PlayerViewModel, onClose: () -> Unit) {
     var eqOpen by rememberSaveable { mutableStateOf(false) }
+    var showLyrics by rememberSaveable { mutableStateOf(false) }
     val eqOn by SoundFx.state.collectAsStateWithLifecycle()
     if (eqOpen) {
         BackHandler { SoundFx.save(); eqOpen = false }
@@ -643,14 +644,22 @@ private fun FullPlayer(now: NowPlaying, vm: PlayerViewModel, onClose: () -> Unit
                     Icon(Icons.Default.KeyboardArrowDown, "Kapat", Modifier.size(32.dp))
                 }
                 Spacer(Modifier.weight(1f))
+                IconButton(onClick = { showLyrics = !showLyrics }, modifier = Modifier.offset(x = 12.dp)) {
+                    Icon(Icons.Default.Lyrics, "Şarkı sözleri",
+                        tint = if (showLyrics) Amber else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 IconButton(onClick = { eqOpen = true }, modifier = Modifier.offset(x = 12.dp)) {
                     Icon(Icons.Default.Equalizer, "Ekolayzer",
                         tint = if (eqOn.enabled) Amber else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Spacer(Modifier.weight(1f))
-            now.songId?.let { Artwork(it, 300.dp, corner = 20.dp) }
-            Spacer(Modifier.height(32.dp))
+            if (showLyrics && now.songId != null) {
+                LyricsPanel(now, vm, Modifier.weight(1f).fillMaxWidth().padding(top = 8.dp, bottom = 16.dp))
+            } else {
+                Spacer(Modifier.weight(1f))
+                now.songId?.let { Artwork(it, 300.dp, corner = 20.dp) }
+                Spacer(Modifier.height(32.dp))
+            }
             Text(now.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
                 maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
             Text(now.artist, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -690,7 +699,74 @@ private fun FullPlayer(now: NowPlaying, vm: PlayerViewModel, onClose: () -> Unit
                     Icon(icon, "Tekrar", tint = if (on) Amber else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Spacer(Modifier.weight(1f))
+            if (showLyrics) Spacer(Modifier.height(24.dp)) else Spacer(Modifier.weight(1f))
+        }
+    }
+}
+
+// ---------------- şarkı sözleri ----------------
+
+private sealed interface LyricsUi {
+    data object Loading : LyricsUi
+    data object Offline : LyricsUi
+    data class Done(val lyrics: Lyrics) : LyricsUi
+}
+
+/** Zamanlı sözlerde çalan satır ortada ve altın renkte; satıra dokununca oraya atlar. */
+@Composable
+private fun LyricsPanel(now: NowPlaying, vm: PlayerViewModel, modifier: Modifier) {
+    val context = LocalContext.current
+    val songId = now.songId ?: return
+    var retry by remember { mutableIntStateOf(0) }
+    val ui by produceState<LyricsUi>(LyricsUi.Loading, songId, retry) {
+        value = LyricsUi.Loading
+        val song = vm.songs.value.firstOrNull { it.id == songId }
+        value = runCatching {
+            LyricsRepo.get(context, songId, song?.artist ?: now.artist, song?.title ?: now.title, song?.durationMs ?: now.durationMs)
+        }.fold({ LyricsUi.Done(it) }, { LyricsUi.Offline })
+    }
+    Box(modifier, contentAlignment = Alignment.Center) {
+        when (val u = ui) {
+            LyricsUi.Loading -> CircularProgressIndicator(color = Amber)
+            LyricsUi.Offline -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Sözler için internet gerekiyor.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = { retry++ }) { Text("Tekrar dene") }
+            }
+            is LyricsUi.Done -> when {
+                !u.lyrics.found -> Text("Bu şarkının sözleri bulunamadı.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                u.lyrics.synced.isNotEmpty() -> SyncedLyrics(u.lyrics.synced, now.positionMs, onSeek = vm::seekTo)
+                else -> Text(u.lyrics.plain, style = MaterialTheme.typography.titleMedium, lineHeight = MaterialTheme.typography.titleMedium.lineHeight * 1.3f,
+                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SyncedLyrics(lines: List<LyricLine>, positionMs: Long, onSeek: (Long) -> Unit) {
+    val current = lines.indexOfLast { it.timeMs <= positionMs + 200 }
+    val listState = rememberLazyListState()
+    LaunchedEffect(current) {
+        if (current >= 0) listState.animateScrollToItem((current - 2).coerceAtLeast(0))
+    }
+    LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(vertical = 24.dp)) {
+        itemsIndexed(lines) { i, line ->
+            val text = line.text.ifBlank { "♪" }
+            Text(
+                text,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = if (i == current) FontWeight.Bold else FontWeight.SemiBold,
+                color = when {
+                    i == current -> Amber
+                    i < current -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.fillMaxWidth().clickable { onSeek(line.timeMs) }.padding(vertical = 8.dp),
+            )
+        }
+        item {
+            Text("Sözler: LRCLIB", style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), modifier = Modifier.padding(top = 16.dp))
         }
     }
 }

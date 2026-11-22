@@ -233,7 +233,7 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
             ticker = viewModelScope.launch {
                 while (isActive && controller?.isPlaying == true) {
                     _now.update { it.copy(positionMs = controller?.currentPosition ?: it.positionMs) }
-                    delay(500)
+                    delay(250) // sözlerin satır geçişi için sık
                 }
             }
         }

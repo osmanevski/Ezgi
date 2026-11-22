@@ -13,11 +13,12 @@ on the phone itself. No server, no account. UI in Turkish.*
 - YouTube Music araması ve indirme ([NewPipeExtractor](https://github.com/TeamNewPipe/NewPipeExtractor));
   şarkılar `Müzik/Ezgi` klasörüne iner, uygulama silinse de kalır
 - Ekolayzer: sürüklenebilir eğri ve hazır ayarlar
+- Şarkı sözleri, zamanlı (çalan satır vurgulu; [LRCLIB](https://lrclib.net))
 - Uygulama içi güncelleme: açılışta bu deponun son sürümüne bakar
 
 ## Kurulum
 
-[Sürümler](https://github.com/osmanevski/Ezgi/releases/latest) sayfasından APK'yı indir, dokun,
+[Son sürümü indir](https://github.com/osmanevski/Ezgi/releases/latest/download/Ezgi.apk), dokun,
 "bilinmeyen kaynaklardan yükleme" iznini ver. Sonraki sürümler uygulamanın içinden gelir.
 
 ## Derleme ve yayın
