@@ -1,0 +1,28 @@
+# /etc/systemd/system/ezgi-api.service — Ezgi olay toplayıcı. Caddy: osmanevski.com/ezgi/* → 127.0.0.1:8796
+[Unit]
+Description=Ezgi API (dinleme ve indirme olaylari)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ezgi
+Group=ezgi
+ExecStart=/usr/bin/python3 /opt/ezgi/ezgi_api.py
+Environment=EZGI_DB=/var/lib/ezgi/ezgi.db
+Environment=EZGI_PORT=8796
+Restart=on-failure
+RestartSec=5
+MemoryMax=200M
+CPUQuota=50%
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/lib/ezgi
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

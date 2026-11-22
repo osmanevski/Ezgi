@@ -29,6 +29,7 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
+        History.init(this)
 
         val audioPermission =
             if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO

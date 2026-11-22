@@ -17,6 +17,7 @@ import com.google.common.util.concurrent.ListenableFuture
 /** Çalmanın asıl sahibi. Ekran kapanınca, uygulama arka plana geçince de çalar; bildirim Media3'ten gelir. */
 class PlaybackService : MediaSessionService() {
     private var session: MediaSession? = null
+    private var tracker: PlayTracker? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -35,6 +36,8 @@ class PlaybackService : MediaSessionService() {
             )
             .setHandleAudioBecomingNoisy(true) // kulaklık çıkınca hoparlörden bağırmasın
             .build()
+        History.init(this)
+        tracker = PlayTracker(this, player).also { player.addListener(it) }
         // Ekolayzer çalar oturumuna bağlanır; oturum değişirse yeniden bağlanır.
         SoundFx.attach(this, player.audioSessionId)
         player.addListener(object : Player.Listener {
@@ -72,6 +75,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        tracker?.release()
         SoundFx.release()
         session?.run {
             player.release()

@@ -115,6 +115,7 @@ fun PermissionScreen(onAsk: () -> Unit) {
 @Composable
 fun EzgiApp(vm: PlayerViewModel) {
     UpdateDialog(vm)
+    SharingDialog()
     val deleteReq by vm.deleteRequest.collectAsStateWithLifecycle()
     val deleteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
         vm.onDeleteResult(it.resultCode == android.app.Activity.RESULT_OK)
@@ -991,6 +992,8 @@ private fun SettingsScreen(vm: PlayerViewModel, onOpenEq: () -> Unit) {
                 modifier = Modifier.clickable(enabled = lyricsCount > 0) { vm.clearLyricsCache(); lyricsCount = 0 },
             )
         }
+        item { SettingsHeader("Dinleme geçmişi") }
+        item { HistorySettings() }
         item { SettingsHeader("İndirmeler") }
         item {
             ListItem(
@@ -1076,6 +1079,54 @@ private fun IconPicker() {
 private fun SettingsHeader(text: String) {
     Text(text, style = MaterialTheme.typography.labelLarge, color = Amber,
         modifier = Modifier.padding(start = 20.dp, top = 20.dp, bottom = 4.dp))
+}
+
+// ---------------- dinleme geçmişi ----------------
+
+private const val SHARING_TEXT =
+    "Ezgi hangi şarkıyı ne kadar dinlediğini ve ne indirdiğini telefonda kaydeder. İzin verirsen bunlar " +
+        "Osman'ın sunucusuna (osmanevski.com) da gider: yıl sonu özeti, akıllı mix ve ileride başka cihazlarla " +
+        "eşitleme için. Giden yalnız şarkı adı, sanatçı, ne kadar dinlendiği ve zaman; telefon bilgisi, konum, " +
+        "IP adresi gitmez ya da saklanmaz. Ayarlar'dan istediğin an kapatabilirsin."
+
+/** İlk açılışta bir kez sorar; cevap Ayarlar'dan değiştirilebilir. */
+@Composable
+private fun SharingDialog() {
+    val sharing by History.sharing.collectAsStateWithLifecycle()
+    if (sharing != null) return
+    AlertDialog(
+        onDismissRequest = {},
+        icon = { Icon(Icons.Default.Insights, null, tint = Amber) },
+        title = { Text("Dinlemelerin paylaşılsın mı?") },
+        text = { Text(SHARING_TEXT, style = MaterialTheme.typography.bodyMedium) },
+        confirmButton = { Button(onClick = { History.setSharing(true) }) { Text("Paylaş") } },
+        dismissButton = { TextButton(onClick = { History.setSharing(false) }) { Text("Paylaşma") } },
+    )
+}
+
+@Composable
+private fun HistorySettings() {
+    val sharing by History.sharing.collectAsStateWithLifecycle()
+    val counts by History.counts.collectAsStateWithLifecycle()
+    val (total, unsent) = counts
+    ListItem(
+        headlineContent = { Text("Sunucuyla paylaş") },
+        supportingContent = {
+            Text(when {
+                total == 0 -> "Henüz kayıt yok"
+                sharing == true && unsent > 0 -> "$total kayıt · $unsent tanesi gönderilmeyi bekliyor"
+                sharing == true -> "$total kayıt · hepsi gönderildi"
+                else -> "$total kayıt yalnız bu telefonda"
+            })
+        },
+        leadingContent = { Icon(Icons.Default.Insights, null, tint = if (sharing == true) Amber else MaterialTheme.colorScheme.onSurfaceVariant) },
+        trailingContent = {
+            Switch(checked = sharing == true, onCheckedChange = History::setSharing,
+                colors = SwitchDefaults.colors(checkedTrackColor = Amber))
+        },
+    )
+    Text(SHARING_TEXT, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
 }
 
 // ---------------- güncelleme ----------------

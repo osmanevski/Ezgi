@@ -100,6 +100,11 @@ class DownloadCenter(private val context: Context) {
             target.open().use { out -> fetch(src.url, out) { p -> set(hit.url, DlState.Running(p)) } }
             val songId = target.commit()
             hit.thumbnail?.let { saveCover(it, songId) }
+            History.add(context, PlayEvent(
+                type = "indirme", key = songId.toString(), video = videoId(hit.url),
+                title = hit.title, artist = hit.artist, album = null,
+                durationMs = hit.durationSec * 1000, listenedMs = 0, finished = false, skipped = false,
+            ))
             recordLock.withLock {
                 _done.update { it + (hit.url to songId) }
                 recordFile.writeText(json.encodeToString(_done.value.map { DlRecord(it.key, it.value) }))
