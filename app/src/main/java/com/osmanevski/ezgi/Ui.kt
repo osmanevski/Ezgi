@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -129,6 +130,13 @@ fun EzgiApp(vm: PlayerViewModel) {
     var openListId by rememberSaveable { mutableStateOf<String?>(null) }
     var playerOpen by rememberSaveable { mutableStateOf(false) }
     var addTarget by remember { mutableStateOf<Song?>(null) }
+    var eqOpen by rememberSaveable { mutableStateOf(false) }
+
+    if (eqOpen) {
+        BackHandler { SoundFx.save(); eqOpen = false }
+        EqualizerPage(onBack = { SoundFx.save(); eqOpen = false })
+        return
+    }
 
     BackHandler(enabled = playerOpen) { playerOpen = false }
     BackHandler(enabled = !playerOpen && openListId != null) { openListId = null }
@@ -151,6 +159,10 @@ fun EzgiApp(vm: PlayerViewModel) {
                             selected = tab == 2, onClick = { tab = 2 },
                             icon = { Icon(Icons.Default.Download, null) }, label = { Text("İndir") },
                         )
+                        NavigationBarItem(
+                            selected = tab == 3, onClick = { tab = 3 },
+                            icon = { Icon(Icons.Default.Settings, null) }, label = { Text("Ayarlar") },
+                        )
                     }
                 }
             },
@@ -159,6 +171,7 @@ fun EzgiApp(vm: PlayerViewModel) {
                 val openList = playlists.firstOrNull { it.id == openListId }
                 when {
                     tab == 2 -> DownloadScreen(vm)
+                    tab == 3 -> SettingsScreen(vm, onOpenEq = { eqOpen = true })
                     tab == 0 -> SongsScreen(sortedSongs, loading, now.songId, vm::reloadLibrary,
                         sortMode = sortMode, onSort = vm::setSortMode, onSaveOrder = vm::saveCustomOrder,
                         onDelete = vm::deleteSong,
@@ -680,10 +693,6 @@ private fun FullPlayer(now: NowPlaying, vm: PlayerViewModel, onClose: () -> Unit
                     Icon(Icons.Default.KeyboardArrowDown, "Kapat", Modifier.size(32.dp))
                 }
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = { showLyrics = !showLyrics }, modifier = Modifier.offset(x = 12.dp)) {
-                    Icon(Icons.Default.Lyrics, "Şarkı sözleri",
-                        tint = if (showLyrics) Amber else MaterialTheme.colorScheme.onSurfaceVariant)
-                }
                 IconButton(onClick = { eqOpen = true }, modifier = Modifier.offset(x = 12.dp)) {
                     Icon(Icons.Default.Equalizer, "Ekolayzer",
                         tint = if (eqOn.enabled) Amber else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -735,7 +744,14 @@ private fun FullPlayer(now: NowPlaying, vm: PlayerViewModel, onClose: () -> Unit
                     Icon(icon, "Tekrar", tint = if (on) Amber else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            if (showLyrics) Spacer(Modifier.height(24.dp)) else Spacer(Modifier.weight(1f))
+            Spacer(Modifier.height(16.dp))
+            // Sözler: yazılı düğme, simge aramaya gerek kalmasın.
+            FilledTonalButton(onClick = { showLyrics = !showLyrics }) {
+                Icon(if (showLyrics) Icons.Default.Album else Icons.Default.Lyrics, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(if (showLyrics) "Kapağa dön" else "Sözler")
+            }
+            if (showLyrics) Spacer(Modifier.height(16.dp)) else Spacer(Modifier.weight(1f))
         }
     }
 }
@@ -928,6 +944,93 @@ private fun EqGraph(st: EqState, modifier: Modifier) {
 
 private fun hz(h: Int) = if (h >= 1000) "%s kHz".format(if (h % 1000 == 0) "${h / 1000}" else "%.1f".format(TR, h / 1000f)) else "$h Hz"
 private fun db(mb: Int) = (mb / 100f).let { if (it > 0) "+%.0f dB".format(it) else "%.0f dB".format(it) }
+
+// ---------------- ayarlar ----------------
+
+@Composable
+private fun SettingsScreen(vm: PlayerViewModel, onOpenEq: () -> Unit) {
+    val eq by SoundFx.state.collectAsStateWithLifecycle()
+    val checking by vm.checking.collectAsStateWithLifecycle()
+    val note by vm.updateNote.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    var lyricsCount by remember { mutableIntStateOf(vm.lyricsCacheCount()) }
+    LazyColumn(Modifier.fillMaxSize()) {
+        item {
+            Text("Ayarlar", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(start = 20.dp, top = 20.dp, bottom = 8.dp))
+        }
+        item { SettingsHeader("Ses") }
+        item {
+            val presetName = if (eq.preset >= 0) EqPresets.all[eq.preset].first else "Özel"
+            ListItem(
+                headlineContent = { Text("Ekolayzer") },
+                supportingContent = { Text(if (eq.enabled) "Açık · $presetName" else "Kapalı") },
+                leadingContent = { Icon(Icons.Default.Equalizer, null, tint = if (eq.enabled) Amber else MaterialTheme.colorScheme.onSurfaceVariant) },
+                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
+                modifier = Modifier.clickable(onClick = onOpenEq),
+            )
+        }
+        item { SettingsHeader("Şarkı sözleri") }
+        item {
+            ListItem(
+                headlineContent = { Text("Sözler nerede?") },
+                supportingContent = { Text("Çalan şarkıyı aç (alttaki küçük çalara dokun), kontrollerin altındaki Sözler düğmesine bas. Çalan satır altın renkte; bir satıra dokununca şarkı oraya atlar.") },
+                leadingContent = { Icon(Icons.Default.Lyrics, null) },
+            )
+        }
+        item {
+            ListItem(
+                headlineContent = { Text("Kaydedilmiş sözleri sil") },
+                supportingContent = { Text(if (lyricsCount == 0) "Kayıtlı söz yok" else "$lyricsCount şarkının sözleri telefonda; sonra yeniden indirilir") },
+                leadingContent = { Icon(Icons.Default.DeleteSweep, null) },
+                modifier = Modifier.clickable(enabled = lyricsCount > 0) { vm.clearLyricsCache(); lyricsCount = 0 },
+            )
+        }
+        item { SettingsHeader("İndirmeler") }
+        item {
+            ListItem(
+                headlineContent = { Text("Klasör") },
+                supportingContent = { Text("Müzik/Ezgi · Ezgi silinse de şarkılar kalır") },
+                leadingContent = { Icon(Icons.Default.Folder, null) },
+            )
+        }
+        item { SettingsHeader("Güncelleme") }
+        item {
+            ListItem(
+                headlineContent = { Text("Ezgi ${vm.version}") },
+                supportingContent = { Text(note ?: "Açılışta kendiliğinden bakılır") },
+                leadingContent = { Icon(Icons.Default.SystemUpdate, null) },
+                trailingContent = {
+                    if (checking) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 3.dp, color = Amber)
+                    else FilledTonalButton(onClick = { vm.checkUpdate(manual = true) }) { Text("Denetle") }
+                },
+            )
+        }
+        item { SettingsHeader("Hakkında") }
+        item {
+            ListItem(
+                headlineContent = { Text("Kaynak kod") },
+                supportingContent = { Text("github.com/osmanevski/Ezgi") },
+                leadingContent = { Icon(Icons.Default.Code, null) },
+                modifier = Modifier.clickable {
+                    context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                        android.net.Uri.parse("https://github.com/osmanevski/Ezgi")))
+                },
+            )
+        }
+        item {
+            Text("Arama ve indirme YouTube Music'ten (NewPipeExtractor), sözler LRCLIB'den. Reklam yok, hesap yok.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
+        }
+    }
+}
+
+@Composable
+private fun SettingsHeader(text: String) {
+    Text(text, style = MaterialTheme.typography.labelLarge, color = Amber,
+        modifier = Modifier.padding(start = 20.dp, top = 20.dp, bottom = 4.dp))
+}
 
 // ---------------- güncelleme ----------------
 

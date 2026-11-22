@@ -73,11 +73,29 @@ class PlayerViewModel(app: Application) : AndroidViewModel(app) {
     val update: StateFlow<UpdateState> = _update.asStateFlow()
     val version: String = Updater.currentVersion(app)
 
-    fun checkUpdate() {
+    private val _checking = MutableStateFlow(false)
+    val checking: StateFlow<Boolean> = _checking.asStateFlow()
+    /** Elle denetlemenin sonucu ("Ezgi güncel" gibi); yeni sürüm varsa pencere açılır. */
+    private val _updateNote = MutableStateFlow<String?>(null)
+    val updateNote: StateFlow<String?> = _updateNote.asStateFlow()
+
+    fun checkUpdate(manual: Boolean = false) {
         viewModelScope.launch {
-            runCatching { Updater.check(version) }.getOrNull()?.let { _update.value = UpdateState.Available(it) }
+            _checking.value = true
+            val r = runCatching { Updater.check(version) }
+            val rel = r.getOrNull()
+            when {
+                rel != null -> { _update.value = UpdateState.Available(rel); _updateNote.value = "Yeni sürüm var: ${rel.version}" }
+                manual && r.isFailure -> _updateNote.value = "Bağlanılamadı, interneti kontrol et"
+                manual -> _updateNote.value = "Ezgi güncel"
+            }
+            _checking.value = false
         }
     }
+
+    /** Kaydedilmiş sözlerin sayısı; Ayarlar'dan silinebilir. */
+    fun lyricsCacheCount(): Int = java.io.File(getApplication<Application>().filesDir, "sozler").listFiles()?.size ?: 0
+    fun clearLyricsCache() { java.io.File(getApplication<Application>().filesDir, "sozler").deleteRecursively() }
 
     fun dismissUpdate() { _update.value = UpdateState.None }
 
